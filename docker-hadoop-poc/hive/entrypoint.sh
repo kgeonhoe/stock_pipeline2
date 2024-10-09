@@ -49,6 +49,8 @@ if [ "$MULTIHOMED_NETWORK" = "1" ]; then
     addProperty /etc/hadoop/hdfs-site.xml dfs.namenode.https-bind-host 0.0.0.0
     addProperty /etc/hadoop/hdfs-site.xml dfs.client.use.datanode.hostname true
     addProperty /etc/hadoop/hdfs-site.xml dfs.datanode.use.datanode.hostname true
+    # 20241006 추가 경로 변경 hdd 1테라짜리로 
+    # addProperty /etc/hadoop/hdfs-site.xml dfs.datanode.data.dir file:///dev/hdd/hadoop_data
 
     # YARN
     addProperty /etc/hadoop/yarn-site.xml yarn.resourcemanager.bind-host 0.0.0.0

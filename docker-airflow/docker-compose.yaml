@@ -1,0 +1,120 @@
+version: '3'
+
+x-spark-common: &spark-common
+  image: bitnami/spark:latest
+  build:
+    context: .
+    dockerfile: Dockerfile_spark
+  volumes:
+    - ./jobs:/opt/bitnami/spark/jobs
+    - ./data:/opt/bitnami/spark/data
+    - ./resources:/opt/bitnami/spark/resources
+  networks:
+    - default-network
+  ## 20240704 permission denied 떠서 작업함. 
+  command: >
+      sh -c "chown -R root:root /opt/bitnami/spark/data && chmod -R 775 /opt/bitnami/spark/data
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - airflow.env
+  
+  volumes:
+    - ./jobs:/opt/airflow/jobs
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./data:/opt/bitnami/spark/data
+    - ./resources:/opt/bitnami/spark/resources
+  depends_on:
+    - postgres
+  networks:
+    - default-network
+
+services:
+  spark-master:
+    <<: *spark-common
+    hostname: spark-master
+    command: bin/spark-class org.apache.spark.deploy.master.Master
+    expose:
+      - "7077"
+    ports:
+      - "9090:8080"
+      - "7077:7077"
+      - "4444:4040"
+
+  spark-worker-1:
+    <<: *spark-common
+    command: bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_MODE: worker
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 1g
+      SPARK_MASTER_URL: spark://spark-master:7077
+
+  spark-worker-2:
+    <<: *spark-common
+    command: bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_MODE: worker
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 1g
+      SPARK_MASTER_URL: spark://spark-master:7077
+
+  spark-zeppelin:
+    build: .
+    image: spark-zeppelin
+    container_name: spark-zeppelin
+    depends_on:
+      - spark-master
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./pyspark-samples:/workspace/pyspark-samples
+    environment:
+      - "SPARK_MASTER=spark://spark-master:7077"
+      - "SPARK_HOME=/spark"
+
+  redis:
+    image: redis:latest
+    ports:
+      - 6379:6379
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 30s
+      retries: 50
+    restart: always
+
+
+  postgres:
+    image: postgres:14.0
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    networks:
+      - default-network
+
+  webserver:
+    <<: *airflow-common
+    restart: always 
+    user: "0:0"
+    ports:
+      - "8081:8080"
+    depends_on:
+      - scheduler
+    
+    command: webserver
+    
+  scheduler:
+    <<: *airflow-common
+    command: bash -c "airflow db init && airflow db migrate && airflow users create --username airflow --firstname airflow --lastname airflow --role Admin --email airflow@gmail.com --password airflow && airflow scheduler"
+
+networks:
+  default-network:
